@@ -1669,21 +1669,54 @@ return;
 if (!supabaseClient) {
 initSupabaseClient();
 }
-setSyncStatus('syncing', 'سینک دستی...');
-var result = await syncFromCloud();
-if (result === 'loaded') {
-toast('success', 'بارگذاری شد', 'داده‌ها از cloud بارگذاری شد');
-if (currentUser) shell();
-} else if (result === 'pushed') {
+setSyncStatus('syncing', 'آپلود اجباری...');
+// Force upload local data to cloud
+cloudSyncReady = true;
+var ok = await syncToCloud();
+if (ok) {
 toast('success', 'آپلود شد', 'داده‌ها به cloud آپلود شد');
-} else if (result === 'error') {
-toast('error', 'خطا', 'سینک ناموفق بود');
+setSyncStatus('online', 'آنلاین');
 } else {
-toast('info', 'بدون تغییر', 'داده‌ها همگام هستند');
+toast('error', 'خطا', 'آپلود ناموفق بود - خطا را در Console ببینید');
+setSyncStatus('error', 'خطا');
 }
 }
 
 /* --- Initialize on load --- */
+
+async function forceUploadToCloud() {
+if (!supabaseClient) {
+toast('error', 'خطا', 'ابتدا Supabase را تنظیم کنید');
+return;
+}
+setSyncStatus('syncing', 'آپلود اجباری...');
+cloudSyncReady = true;
+try {
+if (!db._meta) db._meta = {};
+db._meta.savedAt = new Date().toISOString();
+const { error } = await supabaseClient
+.from(SB_DATA_TABLE)
+.upsert({
+id: SB_DATA_ROW_ID,
+json_data: db,
+updated_at: new Date().toISOString()
+});
+if (error) {
+toast('error', 'خطای Supabase', error.message);
+console.error('[Supabase] Force upload error:', error);
+setSyncStatus('error', 'خطا');
+return;
+}
+lastSyncAt = new Date();
+toast('success', 'آپلود شد', 'داده‌ها به cloud آپلود شد');
+setSyncStatus('online', 'آنلاین');
+} catch (e) {
+toast('error', 'خطا', e.message);
+console.error('[Supabase] Force upload exception:', e);
+setSyncStatus('error', 'خطا');
+}
+}
+
 function initSupabaseOnLoad() {
 loadSupabaseConfig();
 if (isSupabaseConfigured()) {
