@@ -2021,12 +2021,21 @@ el.innerHTML = '<span class="user-name">' + esc(currentUser.name) + '</span>'
 // Change own password (any logged-in user)
 function openChangePasswordModal() {
 if (!currentUser) return;
-var body = '<div class="alert alert-info">شما در حال تغییر رمز عبور خود هستید.<br>نام کاربری: <b>' + esc(currentUser.username) + '</b></div>'
-+ '<div class="auth-error" id="pwdError"></div>'
+var isSuper = currentUser.role === 'super_admin';
+var body = '<div class="alert alert-info">شما در حال تغییر رمز عبور خود هستید.<br>نام کاربری: <b>' + esc(currentUser.username) + '</b></div>';
+if (isSuper) {
+body += '<div class="alert alert-warning">⚠️ <b>توجه:</b> به دلیل حساسیت حساب مدیر ارشد، برای تغییر رمز باید <b>کد بازیابی فعلی</b> خود را وارد کنید. سپس کد بازیابی جدید دریافت خواهید کرد.</div>';
+}
+body += '<div class="auth-error" id="pwdError"></div>'
 + '<form id="changePwdForm" onsubmit="event.preventDefault();submitChangePassword()">'
 + '<div class="form-group"><label>رمز فعلی <span class="req">*</span></label>'
-+ '<input name="oldPassword" type="password" required dir="ltr" autocomplete="current-password"></div>'
-+ '<div class="form-group"><label>رمز جدید <span class="req">*</span></label>'
++ '<input name="oldPassword" type="password" required dir="ltr" autocomplete="current-password"></div>';
+if (isSuper) {
+body += '<div class="form-group"><label>کد بازیابی فعلی <span class="req">*</span></label>'
++ '<input name="recoveryCode" dir="ltr" placeholder="XXXX-XXXX-XXXX" autocomplete="off" required>'
++ '<div class="pwd-strength-label" style="color:var(--text3)">برای تأیید هویت، کد بازیابی فعلی را وارد کنید</div></div>';
+}
+body += '<div class="form-group"><label>رمز جدید <span class="req">*</span></label>'
 + '<input name="newPassword" type="password" required dir="ltr" autocomplete="new-password" oninput="onChangePwdInput(this.value)">'
 + '<div class="pwd-strength"><div class="pwd-strength-bar" id="cpwdBar"></div></div>'
 + '<div class="pwd-strength-label" id="cpwdLabel"></div></div>'
@@ -2054,15 +2063,31 @@ var f = new FormData(form);
 var oldPwd = String(f.get('oldPassword'));
 var newPwd = String(f.get('newPassword'));
 var confirmPwd = String(f.get('confirmPassword'));
+var recoveryCode = String(f.get('recoveryCode') || '');
 var err = document.getElementById('pwdError');
 err.textContent = '';
+var isSuper = currentUser.role === 'super_admin';
 
-// Validate
+// Validate old password
 var oldHash = hashSecret(oldPwd, currentUser.passwordSalt);
 if (oldHash !== currentUser.passwordHash) {
 err.textContent = 'رمز فعلی اشتباه است';
 return;
 }
+
+// For super_admin: validate recovery code
+if (isSuper) {
+if (!recoveryCode) {
+err.textContent = 'کد بازیابی فعلی الزامی است';
+return;
+}
+var recHash = hashSecret(normalizeCode(recoveryCode), currentUser.recoverySalt);
+if (recHash !== currentUser.recoveryHash) {
+err.textContent = 'کد بازیابی اشتباه است';
+return;
+}
+}
+
 if (passwordStrength(newPwd).weak) {
 err.textContent = 'رمز جدید ضعیف است (حداقل ۸ کاراکتر)';
 return;
@@ -2087,7 +2112,7 @@ var newHash = hashSecret(newPwd, newSalt);
 var newRecoveryCode = null;
 var newRecSalt = null;
 var newRecHash = null;
-if (currentUser.role === 'super_admin') {
+if (isSuper) {
 newRecoveryCode = genRecoveryCode();
 newRecSalt = genSalt();
 newRecHash = hashSecret(normalizeCode(newRecoveryCode), newRecSalt);
@@ -2284,7 +2309,13 @@ var password = document.getElementById('suPassword').value;
 if (!name) { if (err) err.textContent = 'نام و نام خانوادگی الزامی است'; return; }
 if (username.length < 3) { if (err) err.textContent = 'نام کاربری حداقل ۳ کاراکتر باشد'; return; }
 if (!/^[a-zA-Z0-9_.]+$/.test(username)) { if (err) err.textContent = 'نام کاربری فقط شامل حروف انگلیسی، عدد، نقطه و زیرخط'; return; }
-if ((db.users || []).some(function (u) { return u.username.toLowerCase() === username.toLowerCase(); })) { if (err) err.textContent = 'این نام کاربری قبلاً استفاده شده'; return; }
+var normUsername = username.replace(/[۰-۹]/g, function(d) { return String.fromCharCode(d.charCodeAt(0) - 1728); })
+.replace(/[٠-٩]/g, function(d) { return String.fromCharCode(d.charCodeAt(0) - 1632); });
+if ((db.users || []).some(function (u) { 
+var dbU = u.username.replace(/[۰-۹]/g, function(d) { return String.fromCharCode(d.charCodeAt(0) - 1728); })
+.replace(/[٠-٩]/g, function(d) { return String.fromCharCode(d.charCodeAt(0) - 1632); });
+return dbU.toLowerCase() === normUsername.toLowerCase(); 
+})) { if (err) err.textContent = 'این نام کاربری قبلاً استفاده شده'; return; }
 if (passwordStrength(password).weak) { if (err) err.textContent = 'رمز عبور ضعیف است (حداقل ۸ کاراکتر و سطح متوسط)'; return; }
 if (err) err.textContent = '';
 var pwdSalt = genSalt(), recSalt = genSalt();
@@ -2391,13 +2422,21 @@ setTimeout(function () { var u = document.getElementById('loginUsername'); if (u
 }
 async function submitLogin() {
 var btn = document.getElementById('loginBtn'), err = document.getElementById('loginError');
-var username = (document.getElementById('loginUsername').value || '').trim();
+var rawUsername = (document.getElementById('loginUsername').value || '').trim();
 var password = document.getElementById('loginPassword').value;
+// Convert Persian/Arabic numbers to English
+var username = rawUsername.replace(/[۰-۹]/g, function(d) { return String.fromCharCode(d.charCodeAt(0) - 1728); })
+.replace(/[٠-٩]/g, function(d) { return String.fromCharCode(d.charCodeAt(0) - 1632); });
 if (!username || !password) { err.textContent = 'نام کاربری و رمز عبور را وارد کنید'; return; }
 err.textContent = '';
 btn.disabled = true; btn.textContent = 'در حال بررسی...';
 await new Promise(function (r) { setTimeout(r, 30); });
-var user = (db.users || []).find(function (u) { return u.username.toLowerCase() === username.toLowerCase(); });
+// Also check with both original and converted username
+var user = (db.users || []).find(function (u) {
+var dbUser = u.username.replace(/[۰-۹]/g, function(d) { return String.fromCharCode(d.charCodeAt(0) - 1728); })
+.replace(/[٠-٩]/g, function(d) { return String.fromCharCode(d.charCodeAt(0) - 1632); });
+return dbUser.toLowerCase() === username.toLowerCase() || u.username.toLowerCase() === rawUsername.toLowerCase();
+});
 function fail(msg) { err.textContent = msg; btn.disabled = false; btn.textContent = 'ورود به سامانه'; }
 if (!user) return fail('نام کاربری یا رمز عبور اشتباه است');
 if (!user.active) return fail('حساب شما غیرفعال شده است. با مدیر سیستم تماس بگیرید');
