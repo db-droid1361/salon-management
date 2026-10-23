@@ -2580,10 +2580,13 @@ return '<label class="checkline"><input type="checkbox" name="allowedMenus" valu
 var rows = (db.users || []).map(function (u) {
 var isMe = currentUser && u.id === currentUser.id;
 var isSuper = u.role === 'super_admin';
+var lastLogin = u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('fa-IR', {dateStyle: 'short', timeStyle: 'short'}) : 'هرگز';
+var lastLoginStyle = u.lastLoginAt ? '' : 'color:var(--text3)';
 return '<tr><td data-label="نام">' + esc(u.name) + (isMe ? ' <span class="badge b-confirmed">شما</span>' : '') + '</td>'
 + '<td data-label="نام کاربری">' + esc(u.username) + '</td>'
 + '<td data-label="نقش"><span class="role-badge ' + roleBadgeClass(u.role) + '">' + roleLabel(u.role) + '</span></td>'
 + '<td data-label="وضعیت">' + (u.active ? '<span class="badge b-confirmed">فعال</span>' : '<span class="badge b-cancelled">غیرفعال</span>') + '</td>'
++ '<td data-label="آخرین ورود" style="font-size:11px;white-space:nowrap;' + lastLoginStyle + '">' + lastLogin + '</td>'
 + '<td data-label="عملیات" class="actions-cell">'
 + '<button class="small secondary" onclick="editUser(' + u.id + ')">✏️</button>'
 + (!isSuper ? '<button class="small secondary" onclick="resetUserPassword(' + u.id + ')" title="بازنشانی رمز">🔑</button>' : '')
@@ -2592,8 +2595,8 @@ return '<tr><td data-label="نام">' + esc(u.name) + (isMe ? ' <span class="bad
 + '</td></tr>';
 }).join('');
 c.innerHTML = '<section><div class="card"><div class="card-head"><h2>👥 مدیریت کاربران</h2></div>'
-+ '<div class="table-wrap"><table><thead><tr><th>نام</th><th>نام کاربری</th><th>نقش</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>'
-+ (rows || '<tr><td colspan="5" class="text-center muted" style="padding:24px">کاربری نیست</td></tr>')
++ '<div class="table-wrap"><table><thead><tr><th>نام</th><th>نام کاربری</th><th>نقش</th><th>وضعیت</th><th>آخرین ورود</th><th>عملیات</th></tr></thead><tbody>'
++ (rows || '<tr><td colspan="6" class="text-center muted" style="padding:24px">کاربری نیست</td></tr>')
 + '</tbody></table></div></div>'
 + '<div class="card"><h3>' + (isEd ? '✏️ ویرایش کاربر' : 'افزودن کاربر') + '</h3>'
 + '<form onsubmit="event.preventDefault();saveUser(this)">'
