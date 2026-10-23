@@ -2360,6 +2360,9 @@ window.print();
 function resetUserPassword(id) {
 var u = (db.users || []).find(function(x) { return x.id === id; });
 if (!u) return;
+// SECURITY: Only super_admin can reset admin/super_admin passwords
+if (u.role === 'super_admin') return toast('warning', 'غیرمجاز', 'رمز سوپر ادمین قابل بازنشانی نیست');
+if (u.role === 'admin' && !isSuperAdmin(currentUser)) return toast('warning', 'دسترسی ندارید', 'شما نمی‌توانید رمز مدیر را بازنشانی کنید');
 confirmAction({type:'warning',icon:'\uD83D\uDD11',title:'\u0628\u0627\u0632\u0646\u0634\u0627\u0646\u06CC \u0631\u0645\u0632',message:'\u0622\u06CC\u0627 \u0645\u0637\u0645\u0626\u0646 \u0647\u0633\u062A\u06CC\u062F \u06A9\u0647 \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u06CC\u062F \u0631\u0645\u0632 \u0627\u06CC\u0646 \u06A9\u0627\u0631\u0628\u0631 \u0631\u0627 \u0628\u0627\u0632\u0646\u0634\u0627\u0646\u06CC \u06A9\u0646\u06CC\u062F\u061F',detail:'<b>'+esc(u.name)+'</b> ('+esc(u.username)+')',confirmText:'\u0628\u0644\u0647\u060C \u0628\u0627\u0632\u0646\u0634\u0627\u0646\u06CC \u06A9\u0646',onConfirm:function(){var newPwd=prompt('\u0631\u0645\u0632 \u062C\u062F\u06CC\u062F \u0628\u0631\u0627\u06CC '+u.name+' (\u062D\u062F\u0627\u0642\u0644 \u06F8 \u06A9\u0627\u0631\u0627\u06A9\u062A\u0631):','');if(newPwd===null)return;if(newPwd.length<8){toast('warning','\u06A9\u0648\u062A\u0627\u0647','\u062D\u062F\u0627\u0642\u0644 \u06F8 \u06A9\u0627\u0631\u0627\u06A9\u062A\u0631');return}if(passwordStrength(newPwd).weak){toast('warning','\u0636\u0639\u06CC\u0641','\u0631\u0645\u0632 \u0642\u0648\u06CC\u200C\u062A\u0631 \u0627\u0646\u062A\u062E\u0627\u0628 \u06A9\u0646\u06CC\u062F');return}var newSalt=genSalt();u.passwordSalt=newSalt;u.passwordHash=hashSecret(newPwd,newSalt);u.failedAttempts=0;u.lockedUntil=null;save();log('\u0628\u0627\u0632\u0646\u0634\u0627\u0646\u06CC \u0631\u0645\u0632','\u062A\u0648\u0633\u0637 '+currentUser.username+' \u0628\u0631\u0627\u06CC '+u.username);toast('success','\u062A\u063A\u06CC\u06CC\u0631 \u06CC\u0627\u0641\u062A','\u0631\u0645\u0632 \u00AB'+u.name+'\u00BB \u062A\u063A\u06CC\u06CC\u0631 \u06A9\u0631\u062F');shell();}});return;
 var newPwd = prompt('رمز جدید برای ' + u.name + ' (حداقل ۸ کاراکتر):', '');
 if (newPwd === null) return;
@@ -2728,7 +2731,13 @@ var menuChecks = navItems.filter(function (it) { return it[0] !== 'users'; }).ma
 var on = Array.isArray(e.allowedMenus) && e.allowedMenus.indexOf(it[0]) >= 0;
 return '<label class="checkline"><input type="checkbox" name="allowedMenus" value="' + it[0] + '" ' + (on ? 'checked' : '') + '> ' + it[1] + ' ' + it[2] + '</label>';
 }).join('');
-var rows = (db.users || []).map(function (u) {
+// SECURITY: If current user is admin (not super_admin), hide super_admin users completely
+var visibleUsers = (db.users || []).filter(function(u) {
+if (isSuperAdmin(currentUser)) return true; // super_admin sees everyone
+// admin (even with canManageUsers) cannot see super_admin users
+return u.role !== 'super_admin';
+});
+var rows = visibleUsers.map(function (u) {
 var isMe = currentUser && u.id === currentUser.id;
 var isSuper = u.role === 'super_admin';
 var lastLogin = u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString('fa-IR', {dateStyle: 'short', timeStyle: 'short'}) : 'هرگز';
@@ -2759,9 +2768,10 @@ c.innerHTML = '<section><div class="card"><div class="card-head"><h2>👥 مدی
 + '<div class="form-group"><label>رمز عبور ' + (isEd ? '(خالی = بدون تغییر)' : '<span class="req">*</span>') + '</label><input name="password" type="password" dir="ltr" ' + (isEd ? '' : 'required') + '></div></div>'
 + '<div class="form-row"><div class="form-group"><label>نقش</label><select name="role" onchange="onUserRoleChange(this.value)">'
 + '<option value="user" ' + (e.role === 'user' ? 'selected' : '') + '>کاربر عادی</option>'
-+ '<option value="admin" ' + (e.role === 'admin' ? 'selected' : '') + '>مدیر</option></select></div>'
++ (isSuperAdmin(currentUser) ? '<option value="admin" ' + (e.role === 'admin' ? 'selected' : '') + '>مدیر</option>' : '')
++ '</select></div>'
 + '<div class="form-group"><label class="checkline" style="margin-top:24px"><input type="checkbox" name="active" ' + (e.active !== false ? 'checked' : '') + '> حساب فعال است</label></div></div>'
-+ '<div class="form-group" id="delegateBox" style="' + (e.role === 'admin' ? '' : 'display:none') + ';margin-top:8px">'
++ '<div class="form-group" id="delegateBox" style="' + (e.role === 'admin' && isSuperAdmin(currentUser) ? '' : 'display:none') + ';margin-top:8px">'
 + '<label class="checkline"><input type="checkbox" name="canManageUsers" ' + (e.canManageUsers ? 'checked' : '') + '> 🎫 اجازه مدیریت کاربران (تفویض از مدیر ارشد)</label>'
 + '<div class="pwd-strength-label" style="color:var(--text3)">با فعال کردن این گزینه، این مدیر می‌تواند کاربران را مدیریت کند</div>'
 + '</div>'
@@ -2798,21 +2808,59 @@ confirmAction({type:'warning',icon:'\uD83C\uDFAB',title:'\u0633\u0644\u0628 \u06
 }
 }
 
-function editUser(id) { editingUserId = id; shell(); setTimeout(function () { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }, 30); }
+function editUser(id) {
+// SECURITY: Check if user can edit this target user
+var targetUser = (db.users || []).find(function(u) { return u.id === id; });
+if (targetUser) {
+// Only super_admin can edit super_admin
+if (targetUser.role === 'super_admin' && !isSuperAdmin(currentUser)) {
+toast('warning', 'دسترسی ندارید', 'شما نمی‌توانید مدیر ارشد را ویرایش کنید');
+return;
+}
+// Only super_admin can edit admins
+if (targetUser.role === 'admin' && !isSuperAdmin(currentUser)) {
+toast('warning', 'دسترسی ندارید', 'شما نمی‌توانید مدیر را ویرایش کنید');
+return;
+}
+}
+editingUserId = id; shell(); setTimeout(function () { window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); }, 30); }
 function toggleUser(id) {
 var u = (db.users || []).find(function (x) { return x.id === id; }); if (!u) return;
 if (u.role === 'super_admin') return toast('warning', 'غیرمجاز', 'سوپر ادمین قابل غیرفعال‌سازی نیست');
+if (u.role === 'admin' && !isSuperAdmin(currentUser)) return toast('warning', 'دسترسی ندارید', 'شما نمی‌توانید مدیر را غیرفعال کنید');
 var nv = !u.active;
 if (commit(function () { u.active = nv; }, 'وضعیت کاربر ' + u.username)) shell();
 }
 function delUser(id) {
 var u = (db.users || []).find(function (x) { return x.id === id; }); if (!u) return;
+// SECURITY: Only super_admin can delete admins
 if (u.role === 'super_admin') return toast('warning', 'غیرمجاز', 'سوپر ادمین قابل حذف نیست');
+if (u.role === 'admin' && !isSuperAdmin(currentUser)) return toast('warning', 'دسترسی ندارید', 'شما نمی‌توانید مدیر را حذف کنید');
 confirmAction({type:'danger',icon:'\uD83D\uDDD1\uFE0F',title:'\u062D\u0630\u0641 \u06A9\u0627\u0631\u0628\u0631',message:'\u0622\u06CC\u0627 \u0645\u0637\u0645\u0626\u0646 \u0647\u0633\u062A\u06CC\u062F \u06A9\u0647 \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u06CC\u062F \u0627\u06CC\u0646 \u06A9\u0627\u0631\u0628\u0631 \u0631\u0627 \u062D\u0630\u0641 \u06A9\u0646\u06CC\u062F\u061F',detail:'<b>'+esc(u.name)+'</b> ('+esc(u.username)+')',confirmText:'\u0628\u0644\u0647\u060C \u062D\u0630\u0641 \u06A9\u0646',onConfirm:function(){if (commit(function () { db.users = db.users.filter(function (x) { return x.id !== id; }); }, '\u062D\u0630\u0641 \u06A9\u0627\u0631\u0628\u0631 ' + u.username)) shell();}});return;
 }
 function saveUser(form) {
 if (!form.checkValidity()) { form.reportValidity(); return; }
 var f = new FormData(form);
+// SECURITY: Only super_admin can create/edit admins
+var targetRole = String(f.get('role') || 'user');
+if (targetRole === 'admin' && !isSuperAdmin(currentUser)) {
+toast('warning', 'دسترسی ندارید', 'فقط مدیر ارشد می‌تواند مدیر بسازد');
+return;
+}
+// If editing, check if target is admin/super_admin
+if (editingUserId) {
+var editTarget = (db.users || []).find(function(u) { return u.id === editingUserId; });
+if (editTarget) {
+if (editTarget.role === 'super_admin' && !isSuperAdmin(currentUser)) {
+toast('warning', 'دسترسی ندارید', 'شما نمی‌توانید مدیر ارشد را ویرایش کنید');
+return;
+}
+if (editTarget.role === 'admin' && !isSuperAdmin(currentUser)) {
+toast('warning', 'دسترسی ندارید', 'شما نمی‌توانید مدیر را ویرایش کنید');
+return;
+}
+}
+}
 var name = String(f.get('name')).trim();
 var email = String(f.get('email') || '').trim();
 var username = String(f.get('username')).trim();
